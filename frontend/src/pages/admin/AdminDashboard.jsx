@@ -2,7 +2,8 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard, ShoppingCart, Settings,
-  LogOut, Filter, FileSpreadsheet, FileText, ArrowUpRight, CheckSquare, Package, Plus, Pencil, Trash2, X
+  LogOut, Filter, FileSpreadsheet, FileText, ArrowUpRight, CheckSquare, Package, Plus, Pencil, Trash2, X,
+  MessageSquare, Calendar
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import axios from 'axios';
@@ -16,6 +17,43 @@ const AdminDashboard = () => {
   const [orders, setOrders] = useState([]);
   const [products, setProducts] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
+
+  // New Manual / WhatsApp Order State
+  const [showCreateOrderModal, setShowCreateOrderModal] = useState(false);
+  const [isCreatingOrder, setIsCreatingOrder] = useState(false);
+  const [createOrderForm, setCreateOrderForm] = useState({
+    orderSource: 'WhatsApp',
+    firstName: '',
+    lastName: '',
+    email: '',
+    phone: '',
+    doorNo: '',
+    streetName: '',
+    area: '',
+    landmark: '',
+    city: '',
+    state: 'Tamil Nadu',
+    zip: '',
+    shippingMethod: 'Free Shipping',
+    shippingCost: '0',
+    totalAmount: '',
+    paymentStatus: 'paid',
+    paymentMethod: 'WhatsApp UPI',
+    status: 'processing',
+    dispatchDate: '',
+    expectedDeliveryDate: '',
+    courierName: 'Indian Post',
+    trackingId: '',
+    items: [
+      {
+        productId: '',
+        name: 'Pro Series Regular Parallettes',
+        color: 'Natural Finish',
+        price: '2499',
+        quantity: 1
+      }
+    ]
+  });
 
   // New Order Edit State
   const [showOrderEditModal, setShowOrderEditModal] = useState(false);
@@ -279,6 +317,244 @@ const AdminDashboard = () => {
     } catch (error) {
       toast.error('Failed to update order details');
       console.error(error);
+    }
+  };
+
+  // Helper to calculate dispatch and delivery dates
+  const calculateDefaultDates = (stateName, currentItems = []) => {
+    const today = new Date();
+    const hasColoured = currentItems.some(item => {
+      const name = (item.name || '').toLowerCase();
+      return name.includes('coloured') || name.includes('colored');
+    });
+    const dispatchDays = hasColoured ? 7 : 4;
+    const dispD = new Date(today.getTime() + dispatchDays * 24 * 60 * 60 * 1000);
+
+    const normalizedState = (stateName || '').toLowerCase().trim();
+    const isTN = normalizedState === 'tamil nadu' || normalizedState === 'tamilnadu' || normalizedState === 'tn';
+    const deliveryDays = (isTN ? 8 : 10) + (dispatchDays - 4);
+    const delvD = new Date(today.getTime() + deliveryDays * 24 * 60 * 60 * 1000);
+
+    const toInputFormat = (d) => {
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      return `${y}-${m}-${day}`;
+    };
+
+    return {
+      dispatchDate: toInputFormat(dispD),
+      expectedDeliveryDate: toInputFormat(delvD)
+    };
+  };
+
+  const openCreateOrderModal = () => {
+    const defaultProduct = products[0] || null;
+    const initialItems = [
+      {
+        productId: defaultProduct?._id || '',
+        name: defaultProduct?.name || 'Pro Series Regular Parallettes',
+        color: defaultProduct?.colors?.[0]?.name || 'Natural Finish',
+        price: defaultProduct ? String(defaultProduct.basePrice || 2499) : '2499',
+        quantity: 1
+      }
+    ];
+    const dates = calculateDefaultDates('Tamil Nadu', initialItems);
+
+    setCreateOrderForm({
+      orderSource: 'WhatsApp',
+      firstName: '',
+      lastName: '',
+      email: '',
+      phone: '',
+      doorNo: '',
+      streetName: '',
+      area: '',
+      landmark: '',
+      city: '',
+      state: 'Tamil Nadu',
+      zip: '',
+      shippingMethod: 'Free Shipping',
+      shippingCost: '0',
+      totalAmount: initialItems[0].price,
+      paymentStatus: 'paid',
+      paymentMethod: 'WhatsApp UPI',
+      status: 'processing',
+      dispatchDate: dates.dispatchDate,
+      expectedDeliveryDate: dates.expectedDeliveryDate,
+      courierName: 'Indian Post',
+      trackingId: '',
+      items: initialItems
+    });
+    setShowCreateOrderModal(true);
+  };
+
+  const handleCreateOrderStateChange = (newState) => {
+    const dates = calculateDefaultDates(newState, createOrderForm.items);
+    setCreateOrderForm({
+      ...createOrderForm,
+      state: newState,
+      dispatchDate: dates.dispatchDate,
+      expectedDeliveryDate: dates.expectedDeliveryDate
+    });
+  };
+
+  const handleProductSelectionChange = (index, prodId) => {
+    const updatedItems = [...createOrderForm.items];
+    if (prodId === 'custom') {
+      updatedItems[index] = {
+        productId: '',
+        name: 'Custom Product',
+        color: 'Natural Finish',
+        price: '2499',
+        quantity: updatedItems[index].quantity || 1
+      };
+    } else {
+      const prod = products.find(p => p._id === prodId);
+      if (prod) {
+        updatedItems[index] = {
+          productId: prod._id,
+          name: prod.name,
+          color: prod.colors?.[0]?.name || 'Natural Finish',
+          price: String(prod.basePrice || 2499),
+          quantity: updatedItems[index].quantity || 1
+        };
+      }
+    }
+    const subtotal = updatedItems.reduce((sum, item) => sum + (Number(item.price || 0) * Number(item.quantity || 1)), 0);
+    const total = subtotal + Number(createOrderForm.shippingCost || 0);
+
+    const dates = calculateDefaultDates(createOrderForm.state, updatedItems);
+    setCreateOrderForm({
+      ...createOrderForm,
+      items: updatedItems,
+      totalAmount: String(total),
+      dispatchDate: dates.dispatchDate,
+      expectedDeliveryDate: dates.expectedDeliveryDate
+    });
+  };
+
+  const handleCreateOrderItemChange = (index, field, value) => {
+    const updatedItems = [...createOrderForm.items];
+    updatedItems[index][field] = value;
+    const subtotal = updatedItems.reduce((sum, item) => sum + (Number(item.price || 0) * Number(item.quantity || 1)), 0);
+    const total = subtotal + Number(createOrderForm.shippingCost || 0);
+
+    const dates = field === 'name' ? calculateDefaultDates(createOrderForm.state, updatedItems) : null;
+
+    setCreateOrderForm({
+      ...createOrderForm,
+      items: updatedItems,
+      totalAmount: String(total),
+      ...(dates ? { dispatchDate: dates.dispatchDate, expectedDeliveryDate: dates.expectedDeliveryDate } : {})
+    });
+  };
+
+  const addCreateOrderItem = () => {
+    const defaultProduct = products[0] || null;
+    const newItem = {
+      productId: defaultProduct?._id || '',
+      name: defaultProduct?.name || 'Pro Series Regular Parallettes',
+      color: defaultProduct?.colors?.[0]?.name || 'Natural Finish',
+      price: defaultProduct ? String(defaultProduct.basePrice || 2499) : '2499',
+      quantity: 1
+    };
+    const updatedItems = [...createOrderForm.items, newItem];
+    const subtotal = updatedItems.reduce((sum, item) => sum + (Number(item.price || 0) * Number(item.quantity || 1)), 0);
+    const total = subtotal + Number(createOrderForm.shippingCost || 0);
+
+    setCreateOrderForm({
+      ...createOrderForm,
+      items: updatedItems,
+      totalAmount: String(total)
+    });
+  };
+
+  const removeCreateOrderItem = (index) => {
+    if (createOrderForm.items.length <= 1) return toast.error('Order must have at least one item');
+    const updatedItems = createOrderForm.items.filter((_, i) => i !== index);
+    const subtotal = updatedItems.reduce((sum, item) => sum + (Number(item.price || 0) * Number(item.quantity || 1)), 0);
+    const total = subtotal + Number(createOrderForm.shippingCost || 0);
+
+    setCreateOrderForm({
+      ...createOrderForm,
+      items: updatedItems,
+      totalAmount: String(total)
+    });
+  };
+
+  const handleCreateOrderSubmit = async (e) => {
+    e.preventDefault();
+    if (!createOrderForm.firstName || !createOrderForm.phone) {
+      return toast.error('Please enter customer first name and phone number');
+    }
+    if (!createOrderForm.items || createOrderForm.items.length === 0) {
+      return toast.error('Please add at least one product item');
+    }
+
+    try {
+      setIsCreatingOrder(true);
+      const token = localStorage.getItem('adminToken');
+      const headers = token ? { Authorization: `Bearer ${token}` } : {};
+
+      const door = createOrderForm.doorNo ? createOrderForm.doorNo.trim() : '';
+      const street = createOrderForm.streetName ? createOrderForm.streetName.trim() : '';
+      const area = createOrderForm.area ? createOrderForm.area.trim() : '';
+      const landmark = createOrderForm.landmark ? createOrderForm.landmark.trim() : '';
+
+      let fullAddress = [door, street, area].filter(Boolean).join(', ');
+      if (landmark) fullAddress += `, Near ${landmark}`;
+
+      const subtotal = createOrderForm.items.reduce((sum, item) => sum + (Number(item.price) * Number(item.quantity)), 0);
+      const totalAmount = createOrderForm.totalAmount ? Number(createOrderForm.totalAmount) : subtotal + Number(createOrderForm.shippingCost || 0);
+
+      const payload = {
+        orderSource: createOrderForm.orderSource,
+        customerInfo: {
+          firstName: createOrderForm.firstName.trim(),
+          lastName: createOrderForm.lastName?.trim() || '',
+          email: createOrderForm.email?.trim() || '',
+          phone: createOrderForm.phone.trim()
+        },
+        shippingAddress: {
+          address: fullAddress,
+          city: createOrderForm.city?.trim() || '',
+          state: createOrderForm.state?.trim() || '',
+          zip: createOrderForm.zip?.trim() || '',
+          method: `${createOrderForm.orderSource} (${createOrderForm.shippingMethod || 'Free Shipping'})`
+        },
+        items: createOrderForm.items.map(i => ({
+          productId: i.productId || undefined,
+          name: i.name,
+          color: i.color,
+          price: Number(i.price),
+          quantity: Number(i.quantity)
+        })),
+        totalAmount,
+        status: createOrderForm.status,
+        paymentStatus: createOrderForm.paymentStatus,
+        paymentId: `MANUAL_${createOrderForm.orderSource.toUpperCase()}_${createOrderForm.paymentMethod.replace(/\s+/g, '_')}`,
+        dispatchDate: createOrderForm.dispatchDate ? new Date(createOrderForm.dispatchDate) : undefined,
+        expectedDeliveryDate: createOrderForm.expectedDeliveryDate ? new Date(createOrderForm.expectedDeliveryDate) : undefined,
+        courierName: createOrderForm.courierName,
+        trackingId: createOrderForm.trackingId
+      };
+
+      const res = await axios.post(`${import.meta.env.VITE_API_URL}/admin/orders`, payload, {
+        headers,
+        withCredentials: true
+      });
+
+      if (res.data.success) {
+        toast.success(`Order ${res.data.order.orderId} created successfully!`);
+        setOrders([res.data.order, ...orders]);
+        setShowCreateOrderModal(false);
+      }
+    } catch (error) {
+      console.error('Failed to create manual order:', error);
+      toast.error(error.response?.data?.message || 'Failed to create order');
+    } finally {
+      setIsCreatingOrder(false);
     }
   };
 
@@ -703,10 +979,13 @@ const AdminDashboard = () => {
 
     // Dispatch date filter
     if (filterDispatchDate) {
-      const filterD = new Date(filterDispatchDate).setHours(0, 0, 0, 0);
       if (!o.dispatchDate) return false;
-      const dispatchD = new Date(o.dispatchDate).setHours(0, 0, 0, 0);
-      if (dispatchD !== filterD) return false;
+      const d = new Date(o.dispatchDate);
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      const dStr = `${y}-${m}-${day}`;
+      if (dStr !== filterDispatchDate) return false;
     }
 
     return productMatch && variantMatch;
@@ -939,6 +1218,12 @@ const AdminDashboard = () => {
                     <option value="st">ST Courier</option>
                   </select>
                 </div>
+                <button
+                  onClick={openCreateOrderModal}
+                  className="flex items-center gap-2 bg-luxury-gold text-white px-4 py-2 text-xs font-bold uppercase tracking-widest hover:bg-black transition-colors shadow-sm"
+                >
+                  <Plus size={16} /> + New Order (WhatsApp / Manual)
+                </button>
                 <button onClick={handleDownloadExcel} className="flex items-center gap-2 bg-white border border-black/10 px-4 py-2 text-xs font-bold uppercase tracking-widest hover:border-luxury-gold hover:text-luxury-gold transition-colors shadow-sm">
                   <FileSpreadsheet size={16} /> Export Excel
                 </button>
@@ -990,7 +1275,18 @@ const AdminDashboard = () => {
                     <input type="date" value={exactDate} onChange={(e) => { setExactDate(e.target.value); setFromDate(''); setToDate(''); }} className="border border-black/10 px-3 py-2 text-xs font-bold uppercase tracking-widest text-primary-text outline-none" />
                   </div>
                   <div>
-                    <label className="block text-[10px] font-bold uppercase tracking-widest text-secondary-text mb-1">🚚 Dispatch Date</label>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="block text-[10px] font-bold uppercase tracking-widest text-secondary-text">🚚 Dispatch Date</label>
+                      {filterDispatchDate && (
+                        <button
+                          type="button"
+                          onClick={() => setFilterDispatchDate('')}
+                          className="text-[9px] font-bold uppercase text-red-500 hover:underline tracking-wider"
+                        >
+                          Clear
+                        </button>
+                      )}
+                    </div>
                     <input
                       type="date"
                       value={filterDispatchDate}
@@ -1060,7 +1356,8 @@ const AdminDashboard = () => {
                         />
                       </th>
                       <th className="p-4">Order ID</th>
-                      <th className="p-4">Date</th>
+                      <th className="p-4">Order Date</th>
+                      <th className="p-4">🚚 Dispatch Date</th>
                       <th className="p-4">Customer</th>
                       <th className="p-4">Items</th>
                       <th className="p-4">Total</th>
@@ -1071,7 +1368,7 @@ const AdminDashboard = () => {
                   </thead>
                   <tbody>
                     {isLoading ? (
-                      <tr><td colSpan="8" className="p-8 text-center">Loading orders...</td></tr>
+                      <tr><td colSpan="10" className="p-8 text-center">Loading orders...</td></tr>
                     ) : filteredOrders.length > 0 ? filteredOrders.map((order) => (
                       <tr key={order._id} className={`border-b border-black/5 hover:bg-secondary-white/20 transition-colors text-sm ${selectedOrders.includes(order._id) ? 'bg-luxury-gold/5' : ''}`}>
                         <td className="p-4 pl-6">
@@ -1080,18 +1377,32 @@ const AdminDashboard = () => {
                             onChange={() => toggleSelectOrder(order._id)}
                           />
                         </td>
-                        <td className="p-4 font-mono font-bold text-xs">{order.orderId}</td>
-                        <td className="p-4 text-secondary-text text-xs">
-                          <div>{new Date(order.createdAt).toLocaleDateString()}</div>
-                          {order.dispatchDate && (
-                            <div className="text-[10px] text-gray-500 mt-1">
-                              Disp: {new Date(order.dispatchDate).toLocaleDateString()}
-                            </div>
+                        <td className="p-4 font-mono font-bold text-xs">
+                          <div>{order.orderId}</div>
+                          {order.paymentId && order.paymentId.includes('MANUAL') && (
+                            <span className="inline-block mt-1 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider bg-green-100 text-green-800 border border-green-200 rounded">
+                              WhatsApp / Manual
+                            </span>
                           )}
-                          {order.expectedDeliveryDate && (
-                            <div className="text-[10px] text-luxury-gold font-bold mt-0.5">
-                              Delv: {new Date(order.expectedDeliveryDate).toLocaleDateString()}
+                        </td>
+                        <td className="p-4 text-secondary-text text-xs whitespace-nowrap">
+                          {new Date(order.createdAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
+                        </td>
+                        <td className="p-4 whitespace-nowrap">
+                          {order.dispatchDate ? (
+                            <div>
+                              <div className="font-bold text-xs text-primary-text flex items-center gap-1.5">
+                                <span className="w-2 h-2 rounded-full bg-amber-500"></span>
+                                {new Date(order.dispatchDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
+                              </div>
+                              {order.expectedDeliveryDate && (
+                                <div className="text-[10px] text-luxury-gold font-medium mt-0.5">
+                                  Delivery: {new Date(order.expectedDeliveryDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}
+                                </div>
+                              )}
                             </div>
+                          ) : (
+                            <span className="text-xs text-gray-400 italic">Not set</span>
                           )}
                         </td>
                         <td className="p-4">
@@ -1203,7 +1514,7 @@ const AdminDashboard = () => {
                       </tr>
                     )) : (
                       <tr>
-                        <td colSpan="8" className="p-8 text-center text-secondary-text text-sm">No orders found matching the criteria.</td>
+                        <td colSpan="10" className="p-8 text-center text-secondary-text text-sm">No orders found matching the criteria.</td>
                       </tr>
                     )}
                   </tbody>
@@ -1573,6 +1884,446 @@ const AdminDashboard = () => {
                   <button type="button" onClick={() => setShowOrderEditModal(false)} className="px-4 py-2 text-xs font-bold uppercase tracking-widest text-secondary-text hover:text-primary-text">Cancel</button>
                   <button type="submit" disabled={orderEditForm.items.length === 0} className="px-6 py-2 text-xs font-bold uppercase tracking-widest bg-primary-text text-white hover:bg-luxury-gold transition-colors disabled:opacity-50">
                     Save Order Changes
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* NEW MANUAL / WHATSAPP ORDER MODAL */}
+        {showCreateOrderModal && (
+          <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+            <div className="bg-white max-w-3xl w-full max-h-[92vh] overflow-y-auto shadow-2xl">
+              <div className="p-6 border-b border-black/10 flex justify-between items-center bg-secondary-white/30 sticky top-0 z-10 backdrop-blur-sm">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-full bg-green-100 text-green-700 flex items-center justify-center font-bold">
+                    <MessageSquare size={20} />
+                  </div>
+                  <div>
+                    <h2 className="text-xl font-bold uppercase tracking-widest text-primary-text">
+                      New Manual / WhatsApp Order
+                    </h2>
+                    <p className="text-xs text-secondary-text">Fill order details to add directly to dashboard</p>
+                  </div>
+                </div>
+                <button onClick={() => setShowCreateOrderModal(false)} className="text-secondary-text hover:text-primary-text p-1">
+                  <X size={24} />
+                </button>
+              </div>
+
+              <form onSubmit={handleCreateOrderSubmit} className="p-6 space-y-6">
+                {/* Channel / Order Source */}
+                <div className="bg-secondary-white/40 p-4 border border-black/5 flex flex-wrap items-center justify-between gap-4">
+                  <div>
+                    <label className="block text-[10px] font-bold uppercase tracking-widest text-secondary-text mb-1.5">Order Source / Channel</label>
+                    <div className="flex gap-2">
+                      {['WhatsApp', 'Instagram', 'Call / Manual', 'Website'].map(src => (
+                        <button
+                          type="button"
+                          key={src}
+                          onClick={() => setCreateOrderForm({ ...createOrderForm, orderSource: src })}
+                          className={`px-3 py-1.5 text-xs font-bold uppercase tracking-wider border transition-colors ${
+                            createOrderForm.orderSource === src
+                              ? 'bg-luxury-gold text-white border-luxury-gold'
+                              : 'bg-white text-primary-text border-black/10 hover:border-black/30'
+                          }`}
+                        >
+                          {src}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] font-bold uppercase tracking-widest text-secondary-text mb-1.5">Initial Order Status</label>
+                    <select
+                      value={createOrderForm.status}
+                      onChange={(e) => setCreateOrderForm({ ...createOrderForm, status: e.target.value })}
+                      className="border border-black/10 px-3 py-1.5 text-xs font-bold uppercase tracking-widest text-primary-text outline-none bg-white cursor-pointer"
+                    >
+                      <option value="processing">Processing</option>
+                      <option value="packing">Packing</option>
+                      <option value="shipping">Shipping</option>
+                      <option value="delivered">Delivered</option>
+                    </select>
+                  </div>
+                </div>
+
+                {/* Customer Details */}
+                <div className="space-y-3">
+                  <h3 className="text-xs font-bold uppercase tracking-[0.2em] text-luxury-gold pb-2 border-b border-black/5 flex items-center gap-2">
+                    Customer Information
+                  </h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-[10px] font-bold uppercase tracking-widest text-secondary-text mb-1">
+                        First Name <span className="text-red-500">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        value={createOrderForm.firstName}
+                        onChange={(e) => setCreateOrderForm({ ...createOrderForm, firstName: e.target.value })}
+                        required
+                        placeholder="e.g. Rahul"
+                        className="w-full border border-black/10 px-3 py-2 text-xs font-bold text-primary-text outline-none bg-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-bold uppercase tracking-widest text-secondary-text mb-1">Last Name</label>
+                      <input
+                        type="text"
+                        value={createOrderForm.lastName}
+                        onChange={(e) => setCreateOrderForm({ ...createOrderForm, lastName: e.target.value })}
+                        placeholder="e.g. Kumar"
+                        className="w-full border border-black/10 px-3 py-2 text-xs font-bold text-primary-text outline-none bg-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-bold uppercase tracking-widest text-secondary-text mb-1">
+                        Phone Number (WhatsApp) <span className="text-red-500">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        value={createOrderForm.phone}
+                        onChange={(e) => setCreateOrderForm({ ...createOrderForm, phone: e.target.value })}
+                        required
+                        placeholder="10-digit mobile number"
+                        className="w-full border border-black/10 px-3 py-2 text-xs font-bold text-primary-text outline-none bg-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-bold uppercase tracking-widest text-secondary-text mb-1">Email (Optional)</label>
+                      <input
+                        type="email"
+                        value={createOrderForm.email}
+                        onChange={(e) => setCreateOrderForm({ ...createOrderForm, email: e.target.value })}
+                        placeholder="customer@email.com"
+                        className="w-full border border-black/10 px-3 py-2 text-xs font-bold text-primary-text outline-none bg-white"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Shipping Address */}
+                <div className="space-y-3">
+                  <h3 className="text-xs font-bold uppercase tracking-[0.2em] text-luxury-gold pb-2 border-b border-black/5">Shipping Address</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-[10px] font-bold uppercase tracking-widest text-secondary-text mb-1">Door / Flat / House No</label>
+                      <input
+                        type="text"
+                        value={createOrderForm.doorNo}
+                        onChange={(e) => setCreateOrderForm({ ...createOrderForm, doorNo: e.target.value })}
+                        placeholder="e.g. Flat 402, Royal Enclave"
+                        className="w-full border border-black/10 px-3 py-2 text-xs font-bold text-primary-text outline-none bg-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-bold uppercase tracking-widest text-secondary-text mb-1">Street / Road Name</label>
+                      <input
+                        type="text"
+                        value={createOrderForm.streetName}
+                        onChange={(e) => setCreateOrderForm({ ...createOrderForm, streetName: e.target.value })}
+                        placeholder="e.g. 1st Cross Street"
+                        className="w-full border border-black/10 px-3 py-2 text-xs font-bold text-primary-text outline-none bg-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-bold uppercase tracking-widest text-secondary-text mb-1">Area / Locality</label>
+                      <input
+                        type="text"
+                        value={createOrderForm.area}
+                        onChange={(e) => setCreateOrderForm({ ...createOrderForm, area: e.target.value })}
+                        placeholder="e.g. Anna Nagar"
+                        className="w-full border border-black/10 px-3 py-2 text-xs font-bold text-primary-text outline-none bg-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-bold uppercase tracking-widest text-secondary-text mb-1">Landmark</label>
+                      <input
+                        type="text"
+                        value={createOrderForm.landmark}
+                        onChange={(e) => setCreateOrderForm({ ...createOrderForm, landmark: e.target.value })}
+                        placeholder="e.g. Near Apollo Hospital"
+                        className="w-full border border-black/10 px-3 py-2 text-xs font-bold text-primary-text outline-none bg-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-bold uppercase tracking-widest text-secondary-text mb-1">City <span className="text-red-500">*</span></label>
+                      <input
+                        type="text"
+                        value={createOrderForm.city}
+                        onChange={(e) => setCreateOrderForm({ ...createOrderForm, city: e.target.value })}
+                        required
+                        placeholder="e.g. Chennai"
+                        className="w-full border border-black/10 px-3 py-2 text-xs font-bold text-primary-text outline-none bg-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-bold uppercase tracking-widest text-secondary-text mb-1">State <span className="text-red-500">*</span></label>
+                      <input
+                        type="text"
+                        value={createOrderForm.state}
+                        onChange={(e) => handleCreateOrderStateChange(e.target.value)}
+                        required
+                        placeholder="e.g. Tamil Nadu"
+                        className="w-full border border-black/10 px-3 py-2 text-xs font-bold text-primary-text outline-none bg-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-bold uppercase tracking-widest text-secondary-text mb-1">PIN Code <span className="text-red-500">*</span></label>
+                      <input
+                        type="text"
+                        value={createOrderForm.zip}
+                        onChange={(e) => setCreateOrderForm({ ...createOrderForm, zip: e.target.value })}
+                        required
+                        placeholder="e.g. 600040"
+                        className="w-full border border-black/10 px-3 py-2 text-xs font-bold text-primary-text outline-none bg-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-bold uppercase tracking-widest text-secondary-text mb-1">Shipping Method</label>
+                      <input
+                        type="text"
+                        value={createOrderForm.shippingMethod}
+                        onChange={(e) => setCreateOrderForm({ ...createOrderForm, shippingMethod: e.target.value })}
+                        placeholder="e.g. Free Shipping / ST Courier"
+                        className="w-full border border-black/10 px-3 py-2 text-xs font-bold text-primary-text outline-none bg-white"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Items & Products */}
+                <div className="space-y-3">
+                  <div className="flex justify-between items-center pb-2 border-b border-black/5">
+                    <h3 className="text-xs font-bold uppercase tracking-[0.2em] text-luxury-gold">Order Items ({createOrderForm.items.length})</h3>
+                    <button
+                      type="button"
+                      onClick={addCreateOrderItem}
+                      className="text-xs font-bold uppercase tracking-wider text-luxury-gold hover:text-black flex items-center gap-1"
+                    >
+                      <Plus size={14} /> Add Another Item
+                    </button>
+                  </div>
+
+                  {createOrderForm.items.map((item, idx) => (
+                    <div key={idx} className="p-4 border border-black/10 bg-secondary-white/20 relative space-y-3">
+                      {createOrderForm.items.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => removeCreateOrderItem(idx)}
+                          className="absolute top-2 right-2 text-secondary-text hover:text-red-500"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      )}
+                      <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+                        <div className="md:col-span-2">
+                          <label className="block text-[10px] font-bold uppercase tracking-widest text-secondary-text mb-1">Product</label>
+                          <select
+                            value={item.productId || 'custom'}
+                            onChange={(e) => handleProductSelectionChange(idx, e.target.value)}
+                            className="w-full border border-black/10 px-3 py-2 text-xs font-bold text-primary-text outline-none bg-white cursor-pointer"
+                          >
+                            {products.map(p => (
+                              <option key={p._id} value={p._id}>{p.name} (₹{p.basePrice})</option>
+                            ))}
+                            <option value="custom">Custom / Other Product</option>
+                          </select>
+                        </div>
+
+                        <div>
+                          <label className="block text-[10px] font-bold uppercase tracking-widest text-secondary-text mb-1">Variant / Color</label>
+                          <input
+                            type="text"
+                            value={item.color}
+                            onChange={(e) => handleCreateOrderItemChange(idx, 'color', e.target.value)}
+                            placeholder="e.g. Natural Finish"
+                            className="w-full border border-black/10 px-3 py-2 text-xs font-bold text-primary-text outline-none bg-white"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block text-[10px] font-bold uppercase tracking-widest text-secondary-text mb-1">Quantity</label>
+                          <input
+                            type="number"
+                            min="1"
+                            value={item.quantity}
+                            onChange={(e) => handleCreateOrderItemChange(idx, 'quantity', Math.max(1, parseInt(e.target.value) || 1))}
+                            className="w-full border border-black/10 px-3 py-2 text-xs font-bold text-primary-text outline-none bg-white"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-[10px] font-bold uppercase tracking-widest text-secondary-text mb-1">Item Title / Description</label>
+                          <input
+                            type="text"
+                            value={item.name}
+                            onChange={(e) => handleCreateOrderItemChange(idx, 'name', e.target.value)}
+                            placeholder="Product Title"
+                            className="w-full border border-black/10 px-3 py-2 text-xs font-bold text-primary-text outline-none bg-white"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[10px] font-bold uppercase tracking-widest text-secondary-text mb-1">Unit Price (₹)</label>
+                          <input
+                            type="number"
+                            value={item.price}
+                            onChange={(e) => handleCreateOrderItemChange(idx, 'price', e.target.value)}
+                            placeholder="2499"
+                            className="w-full border border-black/10 px-3 py-2 text-xs font-bold text-primary-text outline-none bg-white"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Dates & Logistics */}
+                <div className="space-y-3">
+                  <h3 className="text-xs font-bold uppercase tracking-[0.2em] text-luxury-gold pb-2 border-b border-black/5">Dispatch & Delivery Dates</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-[10px] font-bold uppercase tracking-widest text-secondary-text mb-1">
+                        🚚 Dispatch Date
+                      </label>
+                      <input
+                        type="date"
+                        value={createOrderForm.dispatchDate}
+                        onChange={(e) => setCreateOrderForm({ ...createOrderForm, dispatchDate: e.target.value })}
+                        required
+                        className="w-full border border-black/10 px-3 py-2 text-xs font-bold text-primary-text outline-none bg-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-bold uppercase tracking-widest text-secondary-text mb-1">
+                        📦 Expected Delivery Date
+                      </label>
+                      <input
+                        type="date"
+                        value={createOrderForm.expectedDeliveryDate}
+                        onChange={(e) => setCreateOrderForm({ ...createOrderForm, expectedDeliveryDate: e.target.value })}
+                        className="w-full border border-black/10 px-3 py-2 text-xs font-bold text-primary-text outline-none bg-white"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Payment & Total Amount */}
+                <div className="space-y-3">
+                  <h3 className="text-xs font-bold uppercase tracking-[0.2em] text-luxury-gold pb-2 border-b border-black/5">Payment & Pricing</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div>
+                      <label className="block text-[10px] font-bold uppercase tracking-widest text-secondary-text mb-1">Payment Status</label>
+                      <select
+                        value={createOrderForm.paymentStatus}
+                        onChange={(e) => setCreateOrderForm({ ...createOrderForm, paymentStatus: e.target.value })}
+                        className="w-full border border-black/10 px-3 py-2 text-xs font-bold text-primary-text outline-none bg-white cursor-pointer"
+                      >
+                        <option value="paid">Paid (Prepaid)</option>
+                        <option value="pending">Pending</option>
+                        <option value="cod">Cash on Delivery (COD)</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-[10px] font-bold uppercase tracking-widest text-secondary-text mb-1">Payment Method</label>
+                      <input
+                        type="text"
+                        value={createOrderForm.paymentMethod}
+                        onChange={(e) => setCreateOrderForm({ ...createOrderForm, paymentMethod: e.target.value })}
+                        placeholder="e.g. WhatsApp UPI / GPay"
+                        className="w-full border border-black/10 px-3 py-2 text-xs font-bold text-primary-text outline-none bg-white"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-[10px] font-bold uppercase tracking-widest text-secondary-text mb-1">Shipping Fee (₹)</label>
+                      <input
+                        type="number"
+                        value={createOrderForm.shippingCost}
+                        onChange={(e) => {
+                          const cost = e.target.value;
+                          const subtotal = createOrderForm.items.reduce((sum, item) => sum + (Number(item.price || 0) * Number(item.quantity || 1)), 0);
+                          setCreateOrderForm({
+                            ...createOrderForm,
+                            shippingCost: cost,
+                            totalAmount: String(subtotal + Number(cost || 0))
+                          });
+                        }}
+                        placeholder="0"
+                        className="w-full border border-black/10 px-3 py-2 text-xs font-bold text-primary-text outline-none bg-white"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="pt-2 flex justify-between items-center bg-secondary-white/30 p-4 border border-black/5">
+                    <div>
+                      <p className="text-xs text-secondary-text">Total Calculated Amount</p>
+                      <p className="text-[10px] text-gray-500">Items: ₹{createOrderForm.items.reduce((sum, item) => sum + (Number(item.price || 0) * Number(item.quantity || 1)), 0)} + Shipping: ₹{createOrderForm.shippingCost || 0}</p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-bold text-primary-text">Final Total: ₹</span>
+                      <input
+                        type="number"
+                        value={createOrderForm.totalAmount}
+                        onChange={(e) => setCreateOrderForm({ ...createOrderForm, totalAmount: e.target.value })}
+                        className="w-28 border border-black/20 px-3 py-1.5 text-sm font-extrabold text-primary-text outline-none bg-white"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Tracking Details (Optional) */}
+                <div className="space-y-3">
+                  <h3 className="text-xs font-bold uppercase tracking-[0.2em] text-luxury-gold pb-2 border-b border-black/5">Tracking Details (Optional)</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-[10px] font-bold uppercase tracking-widest text-secondary-text mb-1">Courier Partner</label>
+                      <select
+                        value={createOrderForm.courierName}
+                        onChange={(e) => setCreateOrderForm({ ...createOrderForm, courierName: e.target.value })}
+                        className="w-full border border-black/10 px-3 py-2 text-xs font-bold text-primary-text outline-none bg-white cursor-pointer"
+                      >
+                        <option value="Indian Post">Indian Post</option>
+                        <option value="ST Courier">ST Courier</option>
+                        <option value="Delhivery">Delhivery</option>
+                        <option value="Blue Dart">Blue Dart</option>
+                        <option value="Other">Other</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-bold uppercase tracking-widest text-secondary-text mb-1">Tracking ID</label>
+                      <input
+                        type="text"
+                        value={createOrderForm.trackingId}
+                        onChange={(e) => setCreateOrderForm({ ...createOrderForm, trackingId: e.target.value })}
+                        placeholder="e.g. IN123456789"
+                        className="w-full border border-black/10 px-3 py-2 text-xs font-mono font-bold text-primary-text outline-none bg-white"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Form Actions */}
+                <div className="flex justify-end gap-3 pt-4 border-t border-black/10">
+                  <button
+                    type="button"
+                    onClick={() => setShowCreateOrderModal(false)}
+                    className="px-5 py-2.5 text-xs font-bold uppercase tracking-widest text-secondary-text hover:text-primary-text border border-black/10 bg-white"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isCreatingOrder}
+                    className="px-6 py-2.5 text-xs font-bold uppercase tracking-widest bg-luxury-gold text-white hover:bg-black transition-colors disabled:opacity-50 flex items-center gap-2 shadow-sm"
+                  >
+                    {isCreatingOrder ? 'Creating Order...' : 'Create Order Now'}
                   </button>
                 </div>
               </form>

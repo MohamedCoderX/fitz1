@@ -337,6 +337,95 @@ const deleteOrder = async (req, res) => {
   }
 };
 
+// Create manual / WhatsApp order (admin)
+const createManualOrder = async (req, res) => {
+  try {
+    const {
+      customerInfo,
+      shippingAddress,
+      items,
+      totalAmount,
+      paymentStatus = 'paid',
+      paymentId,
+      dispatchDate,
+      expectedDeliveryDate,
+      status = 'processing',
+      courierName = '',
+      trackingId = '',
+      trackingLink = '',
+      orderSource = 'WhatsApp'
+    } = req.body;
+
+    if (!customerInfo || !customerInfo.firstName || !customerInfo.phone) {
+      return res.status(400).json({ success: false, message: 'Customer name and phone number are required' });
+    }
+
+    if (!items || !Array.isArray(items) || items.length === 0) {
+      return res.status(400).json({ success: false, message: 'At least one item is required' });
+    }
+
+    // Do not decrease stock for manual / WhatsApp orders
+
+    // Generate base order ID
+    const baseOrderId = await generateOrderId(Order);
+
+    const shippingState = shippingAddress ? shippingAddress.state : '';
+    const dates = calculateOrderDates(Date.now(), shippingState, items);
+
+    const finalDispatchDate = dispatchDate ? new Date(dispatchDate) : dates.dispatchDate;
+    const finalExpectedDeliveryDate = expectedDeliveryDate ? new Date(expectedDeliveryDate) : dates.expectedDeliveryDate;
+
+    // Calculate total amount if not specified
+    const calculatedTotal = (totalAmount !== undefined && totalAmount !== null && totalAmount !== '')
+      ? Number(totalAmount)
+      : items.reduce((sum, item) => sum + (Number(item.price || 0) * Number(item.quantity || 1)), 0);
+
+    const newOrder = new Order({
+      orderId: baseOrderId,
+      customerInfo: {
+        firstName: customerInfo.firstName,
+        lastName: customerInfo.lastName || '',
+        email: customerInfo.email || '',
+        phone: customerInfo.phone
+      },
+      shippingAddress: {
+        address: shippingAddress?.address || '',
+        city: shippingAddress?.city || '',
+        state: shippingAddress?.state || '',
+        zip: shippingAddress?.zip || '',
+        method: shippingAddress?.method || `${orderSource} Shipping`
+      },
+      items: items.map(item => ({
+        productId: item.productId || '',
+        name: item.name,
+        color: item.color || 'Natural Finish',
+        price: Number(item.price || 0),
+        quantity: Number(item.quantity || 1)
+      })),
+      totalAmount: calculatedTotal,
+      status,
+      trackingId,
+      courierName,
+      trackingLink,
+      paymentId: paymentId || `MANUAL_${(orderSource || 'WHATSAPP').toUpperCase()}_${Date.now()}`,
+      paymentStatus,
+      dispatchDate: finalDispatchDate,
+      expectedDeliveryDate: finalExpectedDeliveryDate
+    });
+
+    await newOrder.save();
+
+    res.status(201).json({
+      success: true,
+      message: 'Order created successfully',
+      order: newOrder
+    });
+  } catch (error) {
+    console.error('Create Manual Order Error:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
 module.exports = {
   createOrder,
   createOrderWithPayment,
@@ -345,5 +434,6 @@ module.exports = {
   getAllOrders,
   updateOrderStatus,
   updateOrderDetailsFull,
-  deleteOrder
+  deleteOrder,
+  createManualOrder
 };
