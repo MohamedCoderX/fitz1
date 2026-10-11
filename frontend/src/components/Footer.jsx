@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import logo from '../assets/fitz1.png';
+import logo from '../assets/fitz1.webp';
 
 const Footer = () => {
   return (

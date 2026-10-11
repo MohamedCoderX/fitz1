@@ -3,7 +3,7 @@ import { Link, useLocation } from 'react-router-dom';
 import { ShoppingBag, Menu, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useCart } from '../context/CartContext';
-import logo from '../assets/fitz1.png';
+import logo from '../assets/fitz1.webp';
 
 const Navbar = () => {
   const [isScrolled, setIsScrolled] = useState(false);

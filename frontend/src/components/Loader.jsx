@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import logo from '../assets/fitz1.png';
+import logo from '../assets/fitz1.webp';
 
 const Loader = () => {
   const [isLoading, setIsLoading] = useState(true);
